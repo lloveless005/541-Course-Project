@@ -21,14 +21,13 @@ def newRating(curRating, mat):
     # get new rating based on current rating (Markov chain)
     return np.random.choice(range(8), p = mat[curRating])
 
-# assume recovery rate is 0.4 for all companies
 # risk free rate on 2-9-26 is 0.03442
 # use geom. average Pdefault over time remaining on loan
-def getInterest(pDef, yearsRem, rating):
+def getInterest(pDef, yearsRem, rating, RR):
     ann = 1 - (1 - pDef)**(1 / yearsRem)    # annualized probability of default
 
     # derived from (1 + Interest) * (1 - PD) + (Recovery * PD) = 1 + risk free rate
-    loanRate = (1 + 0.03442 - ann * 0.4) / (1 - ann) - 1    
+    loanRate = (1 + 0.03442 - ann * RR) / (1 - ann) - 1    
 
     # # derived from PD = (Interest - rfr) / (1 - recovery)
     # loanRate = ann * 0.6 + 0.03442
@@ -47,6 +46,17 @@ def getInterest(pDef, yearsRem, rating):
     rate = margin + loanRate
 
     return rate
+
+
+# rate loan will sell for: SalesRate = recovery rate + (1 - recovery rate) (1 - PD) - margin
+def getSalesRate(RR, PD):
+    # company pays margin% less than the expected value because the loan is bad
+    margin = 0.05
+
+    return RR + (1 - RR) * (1 - PD) - margin
+
+
+
 
 
 
@@ -82,6 +92,12 @@ yearmat_a = np.array(yearmat_clean)
 #
 # Simulation
 
+# if PD is above this amount we will sell the loan
+riskTolerance = .75
+
+# assume we can recover RR% of the loan on default
+RR = 0.4
+
 myBal = 0
 totalLosses = 0
 loanLife = 10
@@ -90,9 +106,9 @@ loanLife = 10
 # reduced simulation time by 30%
 rows, cols = yearmat_a.shape
 
-matrices = np.zeros((loanLife, rows, cols))
-for k in range(loanLife):
-    matrices[k] = matpow(yearmat_a, loanLife - k)
+matrices = np.zeros((loanLife + 1, rows, cols))
+for k in range(loanLife + 1):
+    matrices[k] = matpow(yearmat_a, k)
 
 sims = 10000
 
@@ -111,8 +127,17 @@ for m in range(sims):
         gain *= 1.03442
 
         if loss > 0:
-            PDtotal = matrices[loanLife - yearsRem][rating][7]
-            interest = getInterest(PDtotal, yearsRem, rating)
+            PDtotal = matrices[yearsRem][rating][7]
+            interest = getInterest(PDtotal, yearsRem, rating, RR)
+
+            # if PD is above our tolerance we sell the loan!
+            if PDtotal > riskTolerance:
+                recoveredAmt = getSalesRate(RR, PDtotal) * loss
+
+                gain += recoveredAmt
+                totalLosses += loss - recoveredAmt
+                
+                loss = 0
 
             # apply interest
             loss *= (1 + interest)
@@ -121,8 +146,11 @@ for m in range(sims):
 
             if rating == 7:
                 # recovery of balance
-                gain += 0.4 * loss
-                totalLosses += loss
+                recoveredAmt = RR * loss
+
+                gain += recoveredAmt
+                totalLosses += loss - recoveredAmt
+
                 loss = 0
             else:
                 # loan payment
@@ -140,6 +168,7 @@ endTime = time.perf_counter()
 elapsed = endTime - startTime
 
 print(f"\nInitial investment of ${sims*10000:,.2f}.")
+print(f"Our risk tolerance is {riskTolerance*100}%.")
 print(f"We now have ${myBal:,.2f} and lost ${totalLosses:,.2f} on defaults.")
 
 rfr = sims * 10000 * (1.03442 ** loanLife)
