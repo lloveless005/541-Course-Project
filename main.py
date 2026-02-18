@@ -55,7 +55,67 @@ def getSalesRate(RR, PD):
 
     return RR + (1 - RR) * (1 - PD) - margin
 
+def riskSim(matrix, riskTolerance, RR, loanLife, sims):
+    myBal = 0
+    totalLosses = 0
 
+    rows, cols = matrix.shape
+
+    matrices = np.zeros((loanLife + 1, rows, cols))
+    for k in range(loanLife + 1):
+        matrices[k] = matpow(matrix, k)
+
+    for m in range(sims):
+
+        rating = genRating()
+        yearsRem = loanLife
+
+        gain = 0    # give 10000 to company as loan
+        loss = 10000
+
+        for i in range(loanLife):
+            # our money is reinvested at the risk free rate
+            gain *= 1.03442
+
+            if loss > 0:
+                PDtotal = matrices[yearsRem][rating][7]
+                interest = getInterest(PDtotal, yearsRem, rating, RR)
+
+                # if PD is above our tolerance we sell the loan!
+                if PDtotal > riskTolerance:
+                    recoveredAmt = getSalesRate(RR, PDtotal) * loss
+
+                    gain += recoveredAmt
+                    totalLosses += loss - recoveredAmt
+                    
+                    loss = 0
+
+                # apply interest
+                loss *= (1 + interest)
+
+                rating = newRating(rating, yearmat_a)
+
+                if rating == 7:
+                    # recovery of balance
+                    recoveredAmt = RR * loss
+
+                    gain += recoveredAmt
+                    totalLosses += loss - recoveredAmt
+
+                    loss = 0
+                else:
+                    # loan payment
+                    payment = loss / yearsRem
+
+                    gain += payment
+                    loss -= payment
+
+
+            yearsRem -= 1
+
+        myBal += gain
+
+    return myBal, totalLosses
 
 
 
@@ -97,72 +157,12 @@ riskTolerance = .75
 
 # assume we can recover RR% of the loan on default
 RR = 0.4
-
-myBal = 0
-totalLosses = 0
 loanLife = 10
-
-# generate matrices for years until loan matures
-# reduced simulation time by 30%
-rows, cols = yearmat_a.shape
-
-matrices = np.zeros((loanLife + 1, rows, cols))
-for k in range(loanLife + 1):
-    matrices[k] = matpow(yearmat_a, k)
-
 sims = 10000
 
 startTime = time.perf_counter()
 
-for m in range(sims):
-
-    rating = genRating()
-    yearsRem = loanLife
-
-    gain = 0    # give 10000 to company as loan
-    loss = 10000
-
-    for i in range(loanLife):
-        # our money is reinvested at the risk free rate
-        gain *= 1.03442
-
-        if loss > 0:
-            PDtotal = matrices[yearsRem][rating][7]
-            interest = getInterest(PDtotal, yearsRem, rating, RR)
-
-            # if PD is above our tolerance we sell the loan!
-            if PDtotal > riskTolerance:
-                recoveredAmt = getSalesRate(RR, PDtotal) * loss
-
-                gain += recoveredAmt
-                totalLosses += loss - recoveredAmt
-                
-                loss = 0
-
-            # apply interest
-            loss *= (1 + interest)
-
-            rating = newRating(rating, yearmat_a)
-
-            if rating == 7:
-                # recovery of balance
-                recoveredAmt = RR * loss
-
-                gain += recoveredAmt
-                totalLosses += loss - recoveredAmt
-
-                loss = 0
-            else:
-                # loan payment
-                payment = loss / yearsRem
-
-                gain += payment
-                loss -= payment
-
-
-        yearsRem -= 1
-
-    myBal += gain
+myBal, totalLosses = riskSim(yearmat_a, riskTolerance, RR, loanLife, sims)
 
 endTime = time.perf_counter()
 elapsed = endTime - startTime
