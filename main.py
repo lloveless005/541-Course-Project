@@ -50,7 +50,7 @@ def getInterest(pDef, yearsRem, rating, RR):
         case 6:
             margin = 0.10
 
-    # multiply the rate so that we are earning money vs charging the rfr equivalent
+    # add to rate so that we are earning money vs charging the rfr equivalent
     rate = margin + loanRate
 
     # account for lifetime of loan
